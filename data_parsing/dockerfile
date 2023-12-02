@@ -1,0 +1,41 @@
+FROM python
+
+# Note: we had to merge the two "pip install" package lists here, otherwise
+# the last "pip install" command in the OP may break dependency resolution…
+
+COPY requirements.txt ./
+# INSTALL Linux ODBC
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
+RUN apt-get update \
+  && apt-get -y install gcc gnupg2 \
+  && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+  && curl https://packages.microsoft.com/config/debian/10/prod.list > /etc/apt/sources.list.d/mssql-release.list
+
+RUN apt-get update \
+  && ACCEPT_EULA=Y apt-get -y install msodbcsql18 \
+  && ACCEPT_EULA=Y apt-get -y install mssql-tools
+
+RUN echo 'export PATH="./opt/mssql-tools/bin"' >> ~/.bashrc \
+  && echo 'export PATH="/opt/mssql-tools/bin"' >> ~/.bashrc \
+  && source ~/.bashrc
+
+RUN apt-get -y install unixodbc-dev \
+  && apt-get -y install python3-pip \
+  && apt-get -y install librdkafka-dev \
+  && pip install pyodbc
+
+# Set database host to container name 'database' so it can connect to its network
+ENV DATABASE_HOST=database
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r ./requirements.txt && \
+    pip install "db_utils @ git+https://docker_token:TOKEN@GITHUB_URL#subdirectory=db_utils"
+
+# it seems like we MUST have all the scripts/files we want to copy/add in the same directory as the dockerfile for things
+# to work -- hence everything being in root
+# COPY ./consumer_script.py ./ 
+COPY ./ ./
+
+
+# the line below automatically runs "python3 ./consumer_script.py when the container is created!
+CMD ["python3", "./consumer_script.py"] 

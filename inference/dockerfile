@@ -1,0 +1,36 @@
+FROM python:3.11
+
+# Copy all files over
+COPY . /inference
+WORKDIR /inference
+
+# Install Linux ODBC for Azure SQL database
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
+RUN apt-get update \
+  && apt-get -y install gcc gnupg2 \
+  && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+  && curl https://packages.microsoft.com/config/debian/10/prod.list > /etc/apt/sources.list.d/mssql-release.list
+
+RUN apt-get update \
+  && ACCEPT_EULA=Y apt-get -y install msodbcsql18 \
+  && ACCEPT_EULA=Y apt-get -y install mssql-tools
+
+RUN echo 'export PATH="./opt/mssql-tools/bin"' >> ~/.bashrc \
+  && echo 'export PATH="/opt/mssql-tools/bin"' >> ~/.bashrc \
+  && source ~/.bashrc
+
+RUN apt-get -y install unixodbc-dev \
+  && apt-get -y install python3-pip \
+  && pip install pyodbc
+
+# Set database host to container name 'database' so it can connect to its network
+ENV DATABASE_HOST=database
+
+# Install dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r ./requirements.txt && \
+    pip install "db_utils @ git+https://docker_token:TOKEN@GITHUB_URL#subdirectory=db_utils"
+
+# Run the inference API using gunicorn on port specified by ENV on docker run -e command
+ENV PORT 3001
+CMD gunicorn -w 3 -b :$PORT main:app

@@ -1,0 +1,166 @@
+stages:
+  - run_tests
+  # - offline_eval
+  - build_main_recommender_image
+  - build_nightly_image
+  - build_parser_image
+  - deploy_parser
+  - deploy_recommender
+  - start_backup
+  - restore_from_backup
+
+run_tests:
+  only:
+  - /^release-tests.*$/
+  image: "python:3.11-bookworm"
+  stage: run_tests
+  before_script:
+    - python --version
+    - rm /bin/sh && ln -s /bin/bash /bin/sh
+    - apt-get update
+      && apt-get -y install gcc gnupg2 && apt-get -y install curl 
+      && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - 
+      && curl https://packages.microsoft.com/config/debian/10/prod.list > /etc/apt/sources.list.d/mssql-release.list
+    - apt-get update
+      && ACCEPT_EULA=Y apt-get -y install msodbcsql18
+      && ACCEPT_EULA=Y apt-get -y install mssql-tools
+    - apt-get update
+      && apt-get -y install unixodbc-dev 
+      && pip install --no-cache-dir --upgrade pip 
+      && pip install --no-cache-dir -r ./tests/test-requirements.txt
+      && pip install --no-cache-dir -r ./inference/requirements.txt
+    - apt-get update
+    - pip install -e ./db_utils
+  script:
+    - python -m pip install coverage  # Runs unit tests & creates a coverage report
+    - python -m coverage run -m unittest discover -s ./tests
+    - python -m coverage report
+    - OFFLINE_EVAL_PASS = $(python3 ./inference/offline_eval.py)
+    - echo $OFFLINE_EVAL_PASS
+
+build_main_recommender_image:
+  only:
+  - /^release-recommender-main-.*$/
+  stage: build_main_recommender_image
+  image: docker:20.10.16
+  services:
+    - name: docker:20.10.16-dind
+      alias: thedockerhost
+  variables:
+    DOCKER_HOST: tcp://thedockerhost:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASS
+  script:
+    - cd ./inference
+    - docker build -f dockerfile -t blo7/comp585_team-5_recommender:latest .
+    - docker push blo7/comp585_team-5_recommender:latest
+  tags:
+  - docker-build
+  
+build_nightly_image:
+  only:
+  - /^release-recommender-nightly-.*$/
+  stage: build_nightly_image
+  image: docker:20.10.16
+  services:
+    - name: docker:20.10.16-dind
+      alias: thedockerhost
+  variables:
+    DOCKER_HOST: tcp://thedockerhost:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASS
+  script:
+    - cd ./inference
+    - docker build -f dockerfile-nightly -t blo7/comp585_team-5_recommender_nightly:$CI_COMMIT_TAG .
+    - docker push blo7/comp585_team-5_recommender_nightly:$CI_COMMIT_TAG
+  tags:
+  - docker-build
+
+  
+build_parser_image:
+  only:
+  - /^release-parser.*$/
+  stage: build_parser_image
+  image: docker:20.10.16
+  services:
+    - name: docker:20.10.16-dind
+      alias: thedockerhost
+  variables:
+    DOCKER_HOST: tcp://thedockerhost:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASS
+  script:
+    - cd ./data_parsing
+    - docker build -t blo7/comp585_team-5_parser:latest .
+    - docker push blo7/comp585_team-5_parser:latest
+  tags:
+  - docker-build
+
+deploy_parser:
+  only:
+  - /^release-parser.*$/
+  stage: deploy_parser
+  image: docker:20.10.16
+  before_script:
+    - apk update
+    - apk add sshpass
+  script:
+    - sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no blo7@fall2023-comp585-5.cs.mcgill.ca "  
+      docker login -u $REGISTRY_USER -p $REGISTRY_PASS &&
+      docker image pull blo7/comp585_team-5_parser:latest &&
+      docker run -d --name python_kafka_reader --restart always --network monitoring-network blo7/comp585_team-5_parser:latest"
+  tags:
+  - docker-run
+
+deploy_recommender:
+  only:
+  - /^release-recommender.*$/
+  stage: deploy_recommender
+  image: docker:20.10.16
+  before_script:
+    - apk update
+    - apk add sshpass
+  script:
+    - sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no blo7@fall2023-comp585-5.cs.mcgill.ca "  
+      cd /home/blo7/localcode/team-5/load_balancer/;
+      python3 deploy_inference_container.py --nightly $CI_COMMIT_TAG"
+  tags:
+  - docker-run
+
+start_backup:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "scheduled_event"
+  stage: start_backup
+  image: docker:20.10.16
+  before_script:
+    - apk update
+    - apk add sshpass
+  script:
+    - sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no blo7@fall2023-comp585-5.cs.mcgill.ca "  
+      cd ./db_backups &&
+      docker exec -t database pg_dumpall -c -U postgres > backup_`date +%d-%m-%Y"_"%H_%M_%S`.sql"
+  tags:
+  - docker-run
+
+restore_from_backup:
+  rules:
+    - if: $CI_RESTORE_FROM_BACKUP != null
+  stage: restore_from_backup
+  image: docker:20.10.16
+  before_script:
+    - apk update
+    - apk add sshpass
+  script:
+    - sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no blo7@fall2023-comp585-5.cs.mcgill.ca " 
+      cd ./db_backups &&
+      cat $CI_RESTORE_FROM_BACKUP | docker exec -i database psql -U postgres "
+  timeout: 3 minutes
+    
+
+

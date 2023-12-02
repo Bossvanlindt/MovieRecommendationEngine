@@ -1,0 +1,20 @@
+### Star Wars user recommendations - local
+GET http://localhost:8080/recommend/9
+
+### Cinderella user recommendations - local
+GET http://localhost:8080/recommend/286228
+
+### Star Wars user recommendations - server
+GET http://fall2023-comp585-5.cs.mcgill.ca:3001/recommend/116788
+
+### Cinderella user recommendations - server
+GET http://fall2023-comp585-5.cs.mcgill.ca:8082/recommend/286228
+
+### Check user movies
+GET http://localhost:8087/recommend/9
+
+### Recommendation for that user
+GET http://localhost:8080/recommend/7564
+
+### Get inexistent movie
+GET http://fall2023-comp585.cs.mcgill.ca:8080/movie/toy+story+1995

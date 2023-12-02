@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  movie-recommender-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: movie-recommender-app
+    ports:
+      - "8082:8082"
+    networks:
+      - monitoring-network
+
+networks:
+  monitoring-network:
+    external: true
+

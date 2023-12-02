@@ -1,0 +1,39 @@
+version: '3'
+
+services:
+  loadbalancer:
+    build: .
+    container_name: loadbalancer-app
+    ports:
+      - "8082:8082"
+    depends_on:
+      - main-inference
+      - nightly-inference
+    networks:
+      - monitoring-network
+
+  main-inference:
+    build:
+      context: ../inference/
+      dockerfile: ../inference/dockerfile-main # Replace with the path to your specific Dockerfile for main-inference
+    container_name: main-inference-app
+    ports:
+      - "3001:3001"
+    networks:
+      - monitoring-network
+    # Additional configuration for Main-Inference
+
+  nightly-inference:
+    build:
+      context: ../inference/
+      dockerfile: ../inference/dockerfile-nightly  # Replace with the path to your specific Dockerfile for nightly-inference
+    container_name: nightly-inference-app
+    ports:
+      - "3002:3002"
+    networks:
+      - monitoring-network
+    # Additional configuration for Nightly-Inference
+
+networks:
+  monitoring-network:
+    external: true
